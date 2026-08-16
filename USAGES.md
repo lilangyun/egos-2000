@@ -36,6 +36,9 @@ make
 ......
 ```
 
+On macOS, the system may ask for your permission 20-ish times before the compiler starts running.
+If this is too annoying, try the `xattr` tool as explained in [this issue](https://github.com/yhzhang0128/egos-2000/issues/73).
+
 ## Step2: Run egos-2000 on the QEMU emulator
 
 Download the [pre-built binaries of QEMU](https://github.com/xpack-dev-tools/qemu-riscv-xpack/releases/tag/v8.2.2-1) from xPack.
