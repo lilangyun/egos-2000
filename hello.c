@@ -13,10 +13,30 @@ void terminal_write(const char *str, int len) {
 
 /* Uncomment the code block below when implementing formatted output.
  */
-/*
+
 #include <stdlib.h>  // for itoa() and utoa()
 #include <string.h>  // for strlen() and strcat()
 #include <stdarg.h>  // for va_start(), va_end(), va_arg() and va_copy()
+
+static void ulltoa(unsigned long long value, char* str, int base){
+    unsigned long long x = value;
+    if(x==0){
+        str[0] = '0';
+        str[1] = '\0';
+        return;
+    }
+    char res[32];
+    int len = 0, idx = 0;
+    while(x>0){
+        unsigned int digit = (unsigned int)(x % base);
+        res[len++] = (digit < 10)? '0'+digit: 'a'+digit-10;
+        x /= base;
+    }
+    while(idx < len){
+        str[idx++] = res[len-idx-1];
+    }
+    str[idx] = 0;
+}
 
 void format_to_str(char* out, const char* fmt, va_list args) {
     for(out[0] = 0; *fmt != '\0'; fmt++) {
@@ -28,6 +48,20 @@ void format_to_str(char* out, const char* fmt, va_list args) {
                 strcat(out, va_arg(args, char*));
             } else if (*fmt == 'd') {
                 itoa(va_arg(args, int), out + strlen(out), 10);
+            } else if (*fmt == 'u') {
+                utoa(va_arg(args, unsigned int), out + strlen(out), 10);
+            } else if (*fmt == 'c') {
+                size_t len = strlen(out);
+                out[len] = va_arg(args, int);
+                out[len+1] = '\0';
+            } else if (*fmt == 'x') {
+                itoa(va_arg(args, int), out + strlen(out), 16);
+            } else if (*fmt == 'p') {
+                strcat(out, "0x");
+                utoa(va_arg(args, unsigned int), out + strlen(out), 16);
+            } else if (*fmt == 'l' && *(fmt+1) == 'l' && *(fmt+2) == 'u') {
+                ulltoa(va_arg(args, unsigned long long), out + strlen(out), 10);
+                fmt+=2;
             }
         }
     }
@@ -43,7 +77,7 @@ int printf(const char* format, ...) {
 
     return 0;
 }
-*/
+
 
 /* Uncomment the code block below when implementing dynamic memory allocation.
  */
@@ -67,7 +101,13 @@ int main() {
     terminal_write(msg, 15);
 
     /* Uncomment this line of code when implementing formatted output. */
-    /* printf("%s-%d is awesome!\n\r", "egos", 2000); */
+    printf("%s-%d is awesome!\n\r", "egos", 2000);
+    printf("%c is character $\n", '$');
+    printf("%c is character 0\n", (char)48);
+    printf("%x is integer 1234 in hexadecimal\n", 1234);
+    printf("%u is the maximum of unsigned int\n", (unsigned int)0xFFFFFFFF);
+    printf("%p is the hexadecimal address of the hello-world string\n", msg);
+    printf("%llu is the maximum of unsigned long long\n", 0xFFFFFFFFFFFFFFFFULL);
 
     return 0;
 }

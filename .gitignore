@@ -1,3 +1,13 @@
 hello.elf
 hello.bin
 hello.lst
+
+# build artifacts
+build/
+tools/
+
+# Local docker run scripts
+*.ps1
+
+# Notes
+*.md
