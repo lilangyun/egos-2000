@@ -11,3 +11,6 @@ build
 # Ignore clangd lsp files.
 .cache
 compile_commands.json
+
+# Ignore Docker run instruction
+*.ps1
