@@ -58,7 +58,7 @@ unsigned int format_to_str_len(const char* fmt, va_list args) {
                 len++;
             } else if (*fmt == 'x') {
                 char tmp[32];
-                len += strlen(utoa(va_arg(args, int), tmp, 16));
+                len += strlen(utoa(va_arg(args, unsigned int), tmp, 16));
             } else if (*fmt == 'p') {
                 char tmp[32];
                 len += 2 + strlen(utoa(va_arg(args, unsigned int), tmp, 16));
@@ -69,7 +69,7 @@ unsigned int format_to_str_len(const char* fmt, va_list args) {
             }
         }
     }
-    return ++len;
+    return len;
 }
 
 void format_to_str(char* out, const char* fmt, va_list args) {
@@ -89,7 +89,7 @@ void format_to_str(char* out, const char* fmt, va_list args) {
                 out[len] = va_arg(args, int);
                 out[len+1] = '\0';
             } else if (*fmt == 'x') {
-                utoa(va_arg(args, int), out + strlen(out), 16);
+                utoa(va_arg(args, unsigned int), out + strlen(out), 16);
             } else if (*fmt == 'p') {
                 strcat(out, "0x");
                 utoa(va_arg(args, unsigned int), out + strlen(out), 16);
@@ -121,7 +121,7 @@ int printf(const char* format, ...) {
     unsigned int len = format_to_str_len(format, args_copy);
     va_end(args_copy);
 
-    char *buf = malloc(len);
+    char *buf = malloc(len+1); // Remeber the '\0'
     format_to_str(buf, format, args);
     va_end(args);
     terminal_write(buf, strlen(buf));
