@@ -2,9 +2,10 @@
 enum thread_status {
 	THREAD_RUNNING,
     /* Define the various possible status of a thread. */
-    THREAD_UNUSED, 
+    THREAD_UNUSED,
     THREAD_READY,
     THREAD_ZOMBIE,
+    THREAD_WAITING,
 };
 
 struct thread {
@@ -17,16 +18,17 @@ struct thread {
     void *stack_base;
 };
 
-struct cv {
-    /* Define the data structure for conditional variables. */
-
-};
-/* Student's code ends here. */
-
 #define MAX_THREAD 32
 int current_idx;       // TCB[current_idx] is the currently running thread.
 struct thread TCB[MAX_THREAD]; // Represent TCB as a simple array. You can also use
                        // a queue data structure as we will explain later.
+
+struct cv {
+    /* Define the data structure for conditional variables. */
+    int waiter[MAX_THREAD];
+    int count;
+};
+/* Student's code ends here. */
 
 /* Every thread created by thread_create() has a 1024-byte
    stack. When creating 1000 threads, 1000*1KB≈1MB will be
