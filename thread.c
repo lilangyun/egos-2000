@@ -16,19 +16,66 @@
 
 void thread_init() {
     /* Student's code goes here (Cooperative Threads). */
-
+    for(int i = 0; i < MAX_THREAD; i++) {
+        TCB[i].arg = NULL;
+        TCB[i].entry = NULL;
+        TCB[i].id = -1;
+        TCB[i].sp = NULL;
+        TCB[i].stack_base = NULL;
+        TCB[i].status = THREAD_UNUSED;
+    }
+    current_idx = 0;
+    next_idx = -1;
+    TCB[current_idx].id = 0;
+    TCB[current_idx].status = THREAD_RUNNING;
     /* Student's code ends here. */
 }
 
 void ctx_entry() {
     /* Student's code goes here (Cooperative Threads). */
-
+    current_idx = next_idx;
+    TCB[current_idx].status = THREAD_RUNNING;
+    TCB[current_idx].entry(TCB[next_idx].arg);
+    thread_exit();
     /* Student's code ends here. */
+}
+
+int find_unused_tcb() {
+    for(int i = 0; i < MAX_THREAD; i++) {
+        if(TCB[i].status == THREAD_UNUSED) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+void reclaim_zombies() {
+    for(int i = 0; i < MAX_THREAD; i++) {
+        if(TCB[i].status == THREAD_ZOMBIE) {
+            free(TCB[i].stack_base);
+            TCB[i].stack_base = NULL;
+            TCB[i].status = THREAD_UNUSED;
+        }
+    }
 }
 
 void thread_create(void (*entry)(void *arg), void *arg) {
     /* Student's code goes here (Cooperative Threads). */
-
+    int child_idx = find_unused_tcb();
+    if(child_idx < 0) {
+        printf("No unusd TCB.\n");
+    }
+    TCB[child_idx].entry = entry;
+    TCB[child_idx].arg = arg;
+    TCB[child_idx].id = child_idx;
+    reclaim_zombies();
+    char* child_stack = malloc(STACK_SIZE);
+    TCB[child_idx].stack_base = child_stack;
+    TCB[child_idx].status = THREAD_READY;
+    TCB[current_idx].status = THREAD_READY;
+    next_idx = child_idx;
+    ctx_start(&TCB[current_idx].sp, child_stack + STACK_SIZE);
+    TCB[current_idx].status = THREAD_RUNNING;
     /* Student's code ends here. */
 }
 
@@ -38,9 +85,30 @@ void thread_yield() {
     /* Student's code ends here. */
 }
 
+int find_ready_tcb() {
+    for(int i = 0; i < MAX_THREAD; i++) {
+        if(TCB[i].status == THREAD_READY) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 void thread_exit() {
     /* Student's code goes here (Cooperative Threads). */
-
+    TCB[current_idx].arg = NULL;
+    TCB[current_idx].entry = NULL;
+    TCB[current_idx].id = -1;
+    TCB[current_idx].sp = NULL;
+    TCB[current_idx].status = THREAD_ZOMBIE;
+    int zombie_idx = current_idx;
+    current_idx = find_ready_tcb();
+    if(current_idx == -1) {
+        TCB[zombie_idx].status = THREAD_UNUSED;
+        _end();
+    }
+    TCB[current_idx].status = THREAD_RUNNING;
+    ctx_switch(&TCB[zombie_idx].sp, TCB[current_idx].sp);
     /* Student's code ends here. */
 }
 
@@ -105,27 +173,38 @@ void consume(void *arg) {
     }
 }
 
+// int main() {
+//     thread_init();
+//     cv_init(&nonfull);
+//     cv_init(&nonempty);
+
+//     int ID[500];
+//     for (int i = 0; i < 500; i++) ID[i] = i;
+
+//     for (int i = 0; i < 500; i++)
+//         thread_create(consume, ID + i);
+
+//     for (int i = 0; i < 500; i++)
+//         thread_create(produce, ID + i);
+
+//     printf("main thread exits\n\r");
+//     thread_exit();
+
+//     /* The control flow should NEVER get here. If the main thread is the last to
+//      * call thread_exit(), thread_exit() should terminate the program by calling
+//      * the _end() in thread.s.
+//      * If the main thread is not the last, thread_exit() will switch the context
+//      * to another thread. Later, when all threads have called thread_exit(), the
+//      * last exited thread should then call _end() when running thread_exit(). */
+// }
+
+void child(void* arg) {
+    printf("%s is running.\n\r", arg);
+}
+
 int main() {
     thread_init();
-    cv_init(&nonfull);
-    cv_init(&nonempty);
-
-    int ID[500];
-    for (int i = 0; i < 500; i++) ID[i] = i;
-
-    for (int i = 0; i < 500; i++)
-        thread_create(consume, ID + i);
-
-    for (int i = 0; i < 500; i++)
-        thread_create(produce, ID + i);
-
-    printf("main thread exits\n\r");
+    thread_create(child, "Child thread");
+    printf("Main thread is running.\n\r");
     thread_exit();
-
-    /* The control flow should NEVER get here. If the main thread is the last to
-     * call thread_exit(), thread_exit() should terminate the program by calling
-     * the _end() in thread.s.
-     * If the main thread is not the last, thread_exit() will switch the context
-     * to another thread. Later, when all threads have called thread_exit(), the
-     * last exited thread should then call _end() when running thread_exit(). */
 }
