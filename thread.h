@@ -25,7 +25,6 @@ struct cv {
 
 #define MAX_THREAD 32
 int current_idx;       // TCB[current_idx] is the currently running thread.
-int next_idx;          // TCB[next_idx] is the next thread will be executed.
 struct thread TCB[MAX_THREAD]; // Represent TCB as a simple array. You can also use
                        // a queue data structure as we will explain later.
 
