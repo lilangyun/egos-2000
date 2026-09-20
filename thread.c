@@ -25,7 +25,6 @@ void thread_init() {
         TCB[i].status = THREAD_UNUSED;
     }
     current_idx = 0;
-    next_idx = -1;
     TCB[current_idx].id = 0;
     TCB[current_idx].status = THREAD_RUNNING;
     /* Student's code ends here. */
@@ -33,9 +32,8 @@ void thread_init() {
 
 void ctx_entry() {
     /* Student's code goes here (Cooperative Threads). */
-    current_idx = next_idx;
     TCB[current_idx].status = THREAD_RUNNING;
-    TCB[current_idx].entry(TCB[next_idx].arg);
+    TCB[current_idx].entry(TCB[current_idx].arg);
     thread_exit();
     /* Student's code ends here. */
 }
@@ -62,26 +60,21 @@ void reclaim_zombies() {
 void thread_create(void (*entry)(void *arg), void *arg) {
     /* Student's code goes here (Cooperative Threads). */
     int child_idx = find_unused_tcb();
+    int parent_idx = current_idx;
     if(child_idx < 0) {
         printf("No unusd TCB.\n");
     }
     TCB[child_idx].entry = entry;
     TCB[child_idx].arg = arg;
-    TCB[child_idx].id = child_idx;
+    TCB[child_idx].id = child_idx;  // Bind with real index
     reclaim_zombies();
     char* child_stack = malloc(STACK_SIZE);
     TCB[child_idx].stack_base = child_stack;
     TCB[child_idx].status = THREAD_READY;
-    TCB[current_idx].status = THREAD_READY;
-    next_idx = child_idx;
-    ctx_start(&TCB[current_idx].sp, child_stack + STACK_SIZE);
-    TCB[current_idx].status = THREAD_RUNNING;
-    /* Student's code ends here. */
-}
-
-void thread_yield() {
-    /* Student's code goes here (Cooperative Threads). */
-
+    TCB[parent_idx].status = THREAD_READY;  // yield CPU
+    current_idx = child_idx;
+    ctx_start(&TCB[parent_idx].sp, child_stack + STACK_SIZE);
+    TCB[parent_idx].status = THREAD_RUNNING;
     /* Student's code ends here. */
 }
 
@@ -92,6 +85,17 @@ int find_ready_tcb() {
         }
     }
     return -1;
+}
+
+void thread_yield() {
+    /* Student's code goes here (Cooperative Threads). */
+    int next_idx = find_ready_tcb();
+    int self_idx = current_idx;
+    TCB[self_idx].status = THREAD_READY;  // yield CPU
+    TCB[next_idx].status = THREAD_RUNNING;
+    current_idx = next_idx;
+    ctx_switch(&TCB[self_idx].sp, TCB[current_idx].sp);
+    /* Student's code ends here. */
 }
 
 void thread_exit() {
@@ -198,13 +202,30 @@ void consume(void *arg) {
 //      * last exited thread should then call _end() when running thread_exit(). */
 // }
 
+// void child(void* arg) {
+//     printf("%s is running.\n\r", arg);
+// }
+
+// int main() {
+//     thread_init();
+//     thread_create(child, "Child thread");
+//     printf("Main thread is running.\n\r");
+//     thread_exit();
+// }
+
 void child(void* arg) {
-    printf("%s is running.\n\r", arg);
+    for (int i = 0; i < 10; i++) {
+        printf("%s is in for loop i=%d\n\r", arg, i);
+        thread_yield();
+    }
 }
 
 int main() {
     thread_init();
     thread_create(child, "Child thread");
-    printf("Main thread is running.\n\r");
+    for (int i = 0; i < 10; i++) {
+        printf("Main thread is in for loop i=%d\n\r", i);
+        thread_yield();
+    }
     thread_exit();
 }
