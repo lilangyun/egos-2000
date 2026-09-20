@@ -1,3 +1,10 @@
 thread.elf
 thread.bin
 thread.lst
+
+
+# Loacal docker run scripts
+*.ps1
+
+# Personal Notes
+*.md
