@@ -8,6 +8,7 @@ enum thread_status {
     THREAD_WAITING,
 };
 
+#include <sys/queue.h>
 struct thread {
     int id;
     void* sp;
@@ -16,17 +17,18 @@ struct thread {
     void (*entry)(void *arg);
     void *arg;
     void *stack_base;
+    TAILQ_ENTRY(thread) ptr;
+    TAILQ_ENTRY(thread) cv_ptr;
 };
+TAILQ_HEAD(TCB, thread) TCB;
+struct thread* current_thread;
 
-#define MAX_THREAD 32
-int current_idx;       // TCB[current_idx] is the currently running thread.
-struct thread TCB[MAX_THREAD]; // Represent TCB as a simple array. You can also use
-                       // a queue data structure as we will explain later.
+#define MAX_THREAD 512
+int tid_status[MAX_THREAD] = {0};
 
 struct cv {
     /* Define the data structure for conditional variables. */
-    int waiter[MAX_THREAD];
-    int count;
+    TAILQ_HEAD(cv_queue, thread) waiter;
 };
 /* Student's code ends here. */
 
