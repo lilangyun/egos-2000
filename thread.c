@@ -5,132 +5,127 @@
  * Description: cooperative threads and synchronization
  */
 
-#include <sys/queue.h>
 #include "print.c"
 #include "thread.h"
 
 /* Student's code goes here (Cooperative Threads). */
 /* Define the TCB and helper functions (if needed) for cooperative threads. */
-int find_unused_tcb() {
-    for(int i = 1; i <= MAX_THREAD; i++) {
-        if(TCB[(current_idx + i) % MAX_THREAD].status == THREAD_UNUSED) {
-            return (current_idx + i) % MAX_THREAD;
+int alloc_tid() {
+    for(int i = 0; i < MAX_THREAD; i++) {
+        if(!tid_status[i]) {
+            tid_status[i] = 1;
+            return i;
         }
     }
-    return -1;
+    return -1;    
 }
 
-int find_ready_tcb() {
-    for(int i = 1; i <= MAX_THREAD; i++) {
-        // Avoid directly finding itself
-        if(TCB[(current_idx + i) % MAX_THREAD].status == THREAD_READY) {
-            return (current_idx + i) % MAX_THREAD;
-        }
+int release_tid(int tid) {
+    tid_status[tid] = 0;
+}
+
+struct thread* find_ready_thread() {
+    struct thread* iter = TAILQ_NEXT(current_thread, ptr);
+    while (iter != NULL) {
+        if (iter->status == THREAD_READY) return iter;
+        iter = TAILQ_NEXT(iter, ptr);
     }
-    return -1;
+    TAILQ_FOREACH(iter, &TCB, ptr) {
+        if (iter->status == THREAD_READY) return iter;
+    }
+    return NULL;
 }
 /* Student's code ends here. */
 
 void thread_init() {
     /* Student's code goes here (Cooperative Threads). */
-    for(int i = 0; i < MAX_THREAD; i++) {
-        TCB[i].arg = NULL;
-        TCB[i].entry = NULL;
-        TCB[i].id = -1;
-        TCB[i].sp = NULL;
-        TCB[i].stack_base = NULL;
-        TCB[i].status = THREAD_UNUSED;
-    }
-    current_idx = 0;
-    TCB[current_idx].id = 0;
-    TCB[current_idx].status = THREAD_RUNNING;
+    TAILQ_INIT(&TCB);
+    struct thread *t = malloc(sizeof(struct thread));
+    t->id = alloc_tid();
+    t->status = THREAD_RUNNING;
+    t->entry = NULL;
+    t->arg = NULL;
+    t->stack_base = NULL;
+    t->sp = NULL;
+    TAILQ_INSERT_TAIL(&TCB, t, ptr);
+    current_thread = t;
     /* Student's code ends here. */
 }
 
 void ctx_entry() {
     /* Student's code goes here (Cooperative Threads). */
-    TCB[current_idx].status = THREAD_RUNNING;
-    TCB[current_idx].entry(TCB[current_idx].arg);
+    current_thread->status = THREAD_RUNNING;
+    current_thread->entry(current_thread->arg);
     thread_exit();
     /* Student's code ends here. */
 }
 
 void thread_create(void (*entry)(void *arg), void *arg) {
     /* Student's code goes here (Cooperative Threads). */
-    int child_idx = find_unused_tcb();
-    int parent_idx = current_idx;
-    if(child_idx < 0) {
-        printf("No unusd TCB.\n");
-        return;
-    }
-
+    struct thread *parent_thread = current_thread;
+    struct thread *child_thread = malloc(sizeof(struct thread));
     char* child_stack = malloc(STACK_SIZE);
-    if(!child_stack) {
+    if((!child_thread) || (!child_stack)) {
         printf("No enought memory.\n");
         return;
     }
-    TCB[child_idx].entry = entry;
-    TCB[child_idx].arg = arg;
-    TCB[child_idx].id = child_idx;  // Bind with real index
-    TCB[child_idx].stack_base = child_stack;
-    TCB[child_idx].status = THREAD_READY;
+    child_thread->entry = entry;
+    child_thread->arg = arg;
+    if((child_thread->id = alloc_tid()) == -1) {
+        printf("No free tid.\n");
+        return;
+    }
 
-    TCB[parent_idx].status = THREAD_READY;  // yield CPU
-    current_idx = child_idx;
-    ctx_start(&TCB[parent_idx].sp, child_stack + STACK_SIZE);
+    child_thread->stack_base = child_stack;
+    child_thread->status = THREAD_READY;
+    TAILQ_INSERT_TAIL(&TCB, child_thread, ptr);
+
+    parent_thread->status = THREAD_READY;  // yield CPU
+    current_thread = child_thread;
+    ctx_start(&parent_thread->sp, child_stack + STACK_SIZE);
 
     // Check if the child thread is zombie
-    if(TCB[child_idx].status == THREAD_ZOMBIE) {
-        free(TCB[child_idx].stack_base);
-        TCB[child_idx].stack_base = NULL;
-        TCB[child_idx].sp = NULL;
-        TCB[child_idx].status = THREAD_UNUSED;
+    if(child_thread->status == THREAD_ZOMBIE) {
+        TAILQ_REMOVE(&TCB, child_thread, ptr);
+        release_tid(child_thread->id);
+        free(child_thread->stack_base);
+        free(child_thread);
     }
-    current_idx = parent_idx;
-    TCB[parent_idx].status = THREAD_RUNNING;
     /* Student's code ends here. */
 }
 
 void thread_yield() {
     /* Student's code goes here (Cooperative Threads). */
-    int self_idx = current_idx;
-    int next_idx = find_ready_tcb();
-    if(next_idx == -1) {
-        if(TCB[self_idx].status == THREAD_ZOMBIE) {
-            TCB[self_idx].status = THREAD_UNUSED;
-            _end();
-        }
-        else if(TCB[self_idx].status == THREAD_WAITING) {
+    struct thread *self_thread = current_thread;
+    struct thread *next_thread = find_ready_thread();
+    if(next_thread == NULL) {
+        if(self_thread->status == THREAD_ZOMBIE) {
+            self_thread->status = THREAD_UNUSED;
             _end();
         }
         return;
     }
 
-    if(TCB[self_idx].status == THREAD_RUNNING) {
-        TCB[self_idx].status = THREAD_READY;  // yield CPU
+    if(self_thread->status== THREAD_RUNNING) {
+        self_thread->status = THREAD_READY;  // yield CPU
     }
-    TCB[next_idx].status = THREAD_RUNNING;
-    current_idx = next_idx;
-    ctx_switch(&TCB[self_idx].sp, TCB[current_idx].sp);
+    next_thread->status = THREAD_RUNNING;
+    current_thread = next_thread;
+    ctx_switch(&self_thread->sp, current_thread->sp);
     
     // Check if the yielding-thread is zombie
-    if(TCB[next_idx].status == THREAD_ZOMBIE) {
-        free(TCB[next_idx].stack_base);
-        TCB[next_idx].stack_base = NULL;
-        TCB[next_idx].sp = NULL;
-        TCB[next_idx].status = THREAD_UNUSED;
+    if(next_thread->status == THREAD_ZOMBIE) {
+        TAILQ_REMOVE(&TCB, next_thread, ptr);
+        release_tid(next_thread->id);
+        free(next_thread->stack_base);
+        free(next_thread);
     }
-    current_idx = self_idx;
-    TCB[self_idx].status = THREAD_RUNNING;
     /* Student's code ends here. */
 }
 
 void thread_exit() {
     /* Student's code goes here (Cooperative Threads). */
-    TCB[current_idx].arg = NULL;
-    TCB[current_idx].entry = NULL;
-    TCB[current_idx].id = -1;
-    TCB[current_idx].status = THREAD_ZOMBIE;
+    current_thread->status = THREAD_ZOMBIE;
     thread_yield();
     /* Student's code ends here. */
 }
@@ -142,30 +137,29 @@ void thread_exit() {
 
 void cv_init(struct cv *condition) {
     /* Student's code goes here (Cooperative Threads). */
-    for(int i = 0; i < MAX_THREAD; i++) {
-        condition->waiter[i] = -1;
-    }
-    condition->count = 0;
+    TAILQ_INIT(&condition->waiter);
     /* Student's code ends here. */
 }
 
 void cv_wait(struct cv *condition) {
     /* Student's code goes here (Cooperative Threads). */
-    condition->waiter[condition->count++] = current_idx;
-    TCB[current_idx].status = THREAD_WAITING;
+    TAILQ_REMOVE(&TCB, current_thread, ptr);
+    TAILQ_INSERT_TAIL(&(condition->waiter), current_thread, cv_ptr);
+    current_thread->status = THREAD_WAITING;
     thread_yield();
-    TCB[current_idx].status = THREAD_RUNNING;
+    current_thread->status = THREAD_RUNNING;
     /* Student's code ends here. */
 }
 
 void cv_signal(struct cv *condition) {
     /* Student's code goes here (Cooperative Threads). */
-    if(condition->count == 0) {
-        return;
+    struct thread* first_wait = TAILQ_FIRST(&condition->waiter);
+    if(first_wait) {
+        TAILQ_REMOVE(&condition->waiter, first_wait, cv_ptr);
+        TAILQ_INSERT_TAIL(&TCB, first_wait, ptr);
+        first_wait->status = THREAD_READY;
+        thread_yield();
     }
-    int waitting_idx = condition->waiter[--condition->count];
-    TCB[waitting_idx].status = THREAD_READY;
-    condition->waiter[condition->count] = -1;
     /* Student's code ends here. */
 }
 
@@ -211,13 +205,13 @@ void consume(void *arg) {
     }
 }
 
-// Condition Variable
+// // Condition Variable
 int main() {
     thread_init();
     cv_init(&nonfull);
     cv_init(&nonempty);
 
-    #define MAX_ID 2
+    #define MAX_ID 100
     int ID[MAX_ID];
     for (int i = 0; i < MAX_ID; i++) ID[i] = i;
 
