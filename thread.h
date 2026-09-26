@@ -20,11 +20,6 @@ struct thread {
     TAILQ_ENTRY(thread) ptr;
     TAILQ_ENTRY(thread) cv_ptr;
 };
-TAILQ_HEAD(TCB, thread) TCB;
-struct thread* current_thread;
-
-#define MAX_THREAD 512
-int tid_status[MAX_THREAD] = {0};
 
 struct cv {
     /* Define the data structure for conditional variables. */

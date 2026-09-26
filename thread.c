@@ -10,6 +10,12 @@
 
 /* Student's code goes here (Cooperative Threads). */
 /* Define the TCB and helper functions (if needed) for cooperative threads. */
+TAILQ_HEAD(TCB, thread) TCB;
+struct thread* current_thread;
+
+#define MAX_THREAD 512
+int tid_status[MAX_THREAD] = {0};
+
 int alloc_tid() {
     for(int i = 0; i < MAX_THREAD; i++) {
         if(!tid_status[i]) {
@@ -17,7 +23,7 @@ int alloc_tid() {
             return i;
         }
     }
-    return -1;    
+    return -1;
 }
 
 int release_tid(int tid) {
@@ -26,12 +32,12 @@ int release_tid(int tid) {
 
 struct thread* find_ready_thread() {
     struct thread* iter = TAILQ_NEXT(current_thread, ptr);
-    while (iter != NULL) {
-        if (iter->status == THREAD_READY) return iter;
+    while(iter != NULL) {
+        if(iter->status == THREAD_READY) return iter;
         iter = TAILQ_NEXT(iter, ptr);
     }
     TAILQ_FOREACH(iter, &TCB, ptr) {
-        if (iter->status == THREAD_READY) return iter;
+        if(iter->status == THREAD_READY) return iter;
     }
     return NULL;
 }
@@ -76,15 +82,15 @@ void thread_create(void (*entry)(void *arg), void *arg) {
         return;
     }
 
+    // Switch to the Child thread.
     child_thread->stack_base = child_stack;
     child_thread->status = THREAD_READY;
     TAILQ_INSERT_TAIL(&TCB, child_thread, ptr);
-
-    parent_thread->status = THREAD_READY;  // yield CPU
+    parent_thread->status = THREAD_READY;
     current_thread = child_thread;
     ctx_start(&parent_thread->sp, child_stack + STACK_SIZE);
 
-    // Check if the child thread is zombie
+    // Release the resource by the Parent thread.
     if(child_thread->status == THREAD_ZOMBIE) {
         TAILQ_REMOVE(&TCB, child_thread, ptr);
         release_tid(child_thread->id);
@@ -98,22 +104,17 @@ void thread_yield() {
     /* Student's code goes here (Cooperative Threads). */
     struct thread *self_thread = current_thread;
     struct thread *next_thread = find_ready_thread();
-    if(next_thread == NULL) {
-        if(self_thread->status == THREAD_ZOMBIE) {
-            self_thread->status = THREAD_UNUSED;
-            _end();
-        }
-        return;
-    }
+    if(next_thread == NULL) _end();
 
+    // Switch to the Next thread.
     if(self_thread->status== THREAD_RUNNING) {
-        self_thread->status = THREAD_READY;  // yield CPU
+        self_thread->status = THREAD_READY;
     }
     next_thread->status = THREAD_RUNNING;
     current_thread = next_thread;
     ctx_switch(&self_thread->sp, current_thread->sp);
     
-    // Check if the yielding-thread is zombie
+    // Release the resource ahead of schedule.
     if(next_thread->status == THREAD_ZOMBIE) {
         TAILQ_REMOVE(&TCB, next_thread, ptr);
         release_tid(next_thread->id);
