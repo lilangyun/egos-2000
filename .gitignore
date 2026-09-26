@@ -14,3 +14,6 @@ compile_commands.json
 
 # Ignore Docker run instruction
 *.ps1
+
+# Ignore personal blog
+PA*.md
