@@ -70,8 +70,9 @@ static void excp_entry(uint id) {
 
 static void intr_entry(uint id) {
     /* Student's code goes here (Preemptive Scheduling). */
-
+    
     /* Update the process lifecycle statistics. */
+    if (id == INTR_ID_TIMER) proc_set[curr_proc_idx].num_timer_interrupt++;
 
     /* Student's code ends here. */
 
@@ -98,15 +99,23 @@ static void proc_yield() {
      * Modify the loop below to find the next process to schedule with MLFQ.
      * [System Call & Protection]
      * Do not schedule a process that should still be sleeping at this time. */
+    ulonglong clock_now = mtime_get();
+    ulonglong this_round_time = clock_now - proc_set[curr_proc_idx].clock_switch_in;
+    proc_set[curr_proc_idx].time_running += this_round_time;
+    proc_set[curr_proc_idx].mlfq_time_running += this_round_time;
+    mlfq_update_level(&proc_set[curr_proc_idx], proc_set[curr_proc_idx].mlfq_time_running);
+    mlfq_reset_level();
 
     int next_idx = MAX_NPROCESS;
+    uint lowest_level = 5;
     for (uint i = 1; i <= MAX_NPROCESS; i++) {
         struct process* p = &proc_set[(curr_proc_idx + i) % MAX_NPROCESS];
-        if (p->status == PROC_PENDING_SYSCALL) proc_try_syscall(p);
+        if(p->status == PROC_PENDING_SYSCALL) proc_try_syscall(p);
 
-        if (p->status == PROC_READY || p->status == PROC_RUNNABLE) {
+        if((p->status == PROC_READY || p->status == PROC_RUNNABLE) &&
+            p->mlfq_level < lowest_level) {
             next_idx = (curr_proc_idx + i) % MAX_NPROCESS;
-            break;
+            lowest_level = p->mlfq_level;
         }
     }
 
@@ -115,7 +124,12 @@ static void proc_yield() {
          * Measure and record lifecycle statistics for the *next* process.
          * [System Call & Protection | Multicore & Locks]
          * Modify mstatus.MPP to enter machine or user mode after mret. */
-
+        clock_now = mtime_get();
+        if (proc_set[next_idx].clock_switch_in == 0) {
+            proc_set[next_idx].clock_response = clock_now;
+            proc_set[next_idx].time_response = clock_now - proc_set[next_idx].clock_creation;
+        }
+        proc_set[next_idx].clock_switch_in = clock_now;
     } else {
         /* [Multicore & Locks]
          * Release the kernel lock.
