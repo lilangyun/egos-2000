@@ -17,6 +17,16 @@ static void proc_set_status(int pid, enum proc_status status) {
         if (proc_set[i].pid == pid) proc_set[i].status = status;
 }
 
+static void print_lifecycle(int idx) {
+    proc_set[idx].clock_termination = mtime_get();
+    proc_set[idx].time_turnaround = proc_set[idx].clock_termination - proc_set[idx].clock_creation;
+    INFO("process %u terminated after %d timer interrupts, turnaround time: %llums, response time: %llums, CPU time: %llums", 
+        proc_set[idx].pid, proc_set[idx].num_timer_interrupt, 
+        proc_set[idx].time_turnaround / 10000,
+        proc_set[idx].time_response / 10000,
+        proc_set[idx].time_running / 10000 );
+}
+
 void proc_set_ready(int pid) { proc_set_status(pid, PROC_READY); }
 void proc_set_running(int pid) { proc_set_status(pid, PROC_RUNNING); }
 void proc_set_runnable(int pid) { proc_set_status(pid, PROC_RUNNABLE); }
@@ -47,6 +57,12 @@ void proc_free(int pid) {
 
     /* Print the lifecycle statistics of the terminated process or processes. */
     if (pid != GPID_ALL) {
+        for (uint idx = 0; idx < MAX_NPROCESS; idx++) {
+            if (proc_set[idx].pid == pid) {
+                print_lifecycle(idx);
+                break;
+            }
+        }
         earth->mmu_free(pid);
         proc_set_status(pid, PROC_UNUSED);
     } else {
@@ -54,6 +70,7 @@ void proc_free(int pid) {
         for (uint i = 0; i < MAX_NPROCESS; i++)
             if (proc_set[i].pid >= GPID_USER_START &&
                 proc_set[i].status != PROC_UNUSED) {
+                print_lifecycle(i);
                 earth->mmu_free(proc_set[i].pid);
                 proc_set[i].status = PROC_UNUSED;
             }
