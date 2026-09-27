@@ -112,6 +112,12 @@ static void proc_yield() {
         struct process* p = &proc_set[(curr_proc_idx + i) % MAX_NPROCESS];
         if(p->status == PROC_PENDING_SYSCALL) proc_try_syscall(p);
 
+        // Skip the sleeping process
+        clock_now = mtime_get();
+        if((p->time_sleep != 0) && (clock_now - p->clock_sleep) < p->time_sleep) {
+            continue;
+        }
+
         if((p->status == PROC_READY || p->status == PROC_RUNNABLE) &&
             p->mlfq_level < lowest_level) {
             next_idx = (curr_proc_idx + i) % MAX_NPROCESS;
@@ -137,8 +143,11 @@ static void proc_yield() {
          * Set curr_proc_idx to MAX_NPROCESS; Reset the timer;
          * Enable interrupts by setting the mstatus.MIE bit to 1;
          * Wait for the next interrupt using the wfi instruction. */
-
-        FATAL("proc_yield: no process to run on core %d", core_in_kernel);
+        curr_proc_idx = MAX_NPROCESS;
+        earth->timer_reset(core_in_kernel);
+        asm("csrs mstatus, %0" ::"r"(0x8));
+        asm volatile("wfi");
+        return;
     }
     /* Student's code ends here. */
 

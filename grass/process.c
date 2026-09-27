@@ -51,7 +51,8 @@ int proc_alloc() {
              * Initialize the fields for lifecycle statistics and MLFQ.
              * [System Call & Protection]
              * Initialize the fields for the process sleep system call. */
-            proc_set[i].clock_creation = mtime_get();
+            ulonglong clock_now = mtime_get();
+            proc_set[i].clock_creation = clock_now;
             proc_set[i].clock_response = 0;
             proc_set[i].clock_switch_in = 0;
             proc_set[i].time_running = 0;
@@ -59,6 +60,9 @@ int proc_alloc() {
 
             proc_set[i].mlfq_level = 0;
             proc_set[i].mlfq_time_running = 0;
+
+            proc_set[i].time_sleep = 0;
+            proc_set[i].clock_sleep = 0;
             /* Student's code ends here. */
             return curr_pid;
         }
@@ -130,7 +134,11 @@ void proc_sleep(int pid, uint usec) {
     /* Student's code goes here (System Call & Protection). */
 
     /* Update the sleep-related fields in the struct process for process pid. */
+    uint idx = pid_to_idx(pid);
+    if (idx >= MAX_NPROCESS) return;
 
+    proc_set[idx].clock_sleep = mtime_get();
+    proc_set[idx].time_sleep = usec * (ulonglong)10;
     /* Student's code ends here. */
 }
 

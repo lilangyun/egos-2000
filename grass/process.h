@@ -9,7 +9,7 @@ enum proc_status {
     PROC_READY,
     PROC_RUNNING,
     PROC_RUNNABLE,
-    PROC_PENDING_SYSCALL
+    PROC_PENDING_SYSCALL,
 };
 
 struct process {
@@ -27,6 +27,9 @@ struct process {
 
     uint mlfq_level;
     ulonglong mlfq_time_running;
+
+    ulonglong time_sleep;
+    ulonglong clock_sleep;
     /* Student's code ends here. */
 };
 #define MAX_NPROCESS 16
