@@ -17,7 +17,8 @@ static void proc_set_status(int pid, enum proc_status status) {
         if (proc_set[i].pid == pid) proc_set[i].status = status;
 }
 
-static void print_lifecycle(int idx) {
+static void proc_print_lifecycle(int idx) {
+    if(idx >= MAX_NPROCESS) return;
     proc_set[idx].clock_termination = mtime_get();
     proc_set[idx].time_turnaround = proc_set[idx].clock_termination - proc_set[idx].clock_creation;
     INFO("process %u terminated after %d timer interrupts, turnaround time: %llums, response time: %llums, CPU time: %llums", 
@@ -25,6 +26,12 @@ static void print_lifecycle(int idx) {
         proc_set[idx].time_turnaround / 10000,
         proc_set[idx].time_response / 10000,
         proc_set[idx].time_running / 10000 );
+}
+
+static uint pid_to_idx(int pid) {
+    for (uint i = 0; i < MAX_NPROCESS; i++)
+        if (proc_set[i].pid == pid) return i;
+    return MAX_NPROCESS;
 }
 
 void proc_set_ready(int pid) { proc_set_status(pid, PROC_READY); }
@@ -44,7 +51,14 @@ int proc_alloc() {
              * Initialize the fields for lifecycle statistics and MLFQ.
              * [System Call & Protection]
              * Initialize the fields for the process sleep system call. */
+            proc_set[i].clock_creation = mtime_get();
+            proc_set[i].clock_response = 0;
+            proc_set[i].clock_switch_in = 0;
+            proc_set[i].time_running = 0;
+            proc_set[i].num_timer_interrupt = 0;
 
+            proc_set[i].mlfq_level = 0;
+            proc_set[i].mlfq_time_running = 0;
             /* Student's code ends here. */
             return curr_pid;
         }
@@ -57,12 +71,8 @@ void proc_free(int pid) {
 
     /* Print the lifecycle statistics of the terminated process or processes. */
     if (pid != GPID_ALL) {
-        for (uint idx = 0; idx < MAX_NPROCESS; idx++) {
-            if (proc_set[idx].pid == pid) {
-                print_lifecycle(idx);
-                break;
-            }
-        }
+        uint idx = pid_to_idx(pid);
+        proc_print_lifecycle(idx);
         earth->mmu_free(pid);
         proc_set_status(pid, PROC_UNUSED);
     } else {
@@ -70,7 +80,7 @@ void proc_free(int pid) {
         for (uint i = 0; i < MAX_NPROCESS; i++)
             if (proc_set[i].pid >= GPID_USER_START &&
                 proc_set[i].status != PROC_UNUSED) {
-                print_lifecycle(i);
+                proc_print_lifecycle(i);
                 earth->mmu_free(proc_set[i].pid);
                 proc_set[i].status = PROC_UNUSED;
             }
@@ -83,6 +93,11 @@ void mlfq_update_level(struct process* p, ulonglong runtime) {
 
     /* Update the MLFQ-related fields in struct process* p after this
      * process has run on the CPU for another ulonglong runtime time units. */
+    uint mlfq_level = p->mlfq_level;
+    if(mlfq_level < (MLFQ_NLEVELS-1) && runtime >= MLFQ_LEVEL_RUNTIME(mlfq_level)) {
+        p->mlfq_level++;
+        p->mlfq_time_running = 0;
+    }
 
     /* Student's code ends here. */
 }
@@ -91,11 +106,23 @@ void mlfq_reset_level() {
     /* Student's code goes here (Preemptive Scheduling). */
     if (!earth->tty_input_empty()) {
         /* Reset the level of GPID_SHELL if there is pending keyboard input. */
+        uint idx = pid_to_idx(GPID_SHELL);
+        if(idx < MAX_NPROCESS) {
+            proc_set[idx].mlfq_level = 0;
+            proc_set[idx].mlfq_time_running = 0;
+        }
     }
 
     static ulonglong MLFQ_last_reset_time = 0;
     /* Reset the level of all processes every MLFQ_RESET_PERIOD time units. */
-
+    ulonglong clock_now = mtime_get();
+    if(clock_now - MLFQ_last_reset_time >= MLFQ_RESET_PERIOD) {
+        for(uint i = 0; i < MAX_NPROCESS; i++) {
+            proc_set[i].mlfq_level = 0;
+            proc_set[i].mlfq_time_running = 0;
+        }
+        MLFQ_last_reset_time = clock_now;
+    }
     /* Student's code ends here. */
 }
 
