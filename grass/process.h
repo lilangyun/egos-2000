@@ -10,6 +10,9 @@ enum proc_status {
     PROC_RUNNING,
     PROC_RUNNABLE,
     PROC_PENDING_SYSCALL,
+    /* A process the kernel has killed (e.g., after a fault). It must never be
+     * scheduled again; GPID_PROCESS reaps it with proc_free(). */
+    PROC_ZOMBIE,
 };
 
 struct process {
@@ -42,6 +45,7 @@ void proc_set_ready(int);
 void proc_set_running(int);
 void proc_set_runnable(int);
 void proc_set_pending(int);
+void proc_set_zombie(int);
 
 void mlfq_reset_level();
 void mlfq_update_level(struct process* p, ulonglong runtime);
