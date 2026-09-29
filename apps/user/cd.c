@@ -10,8 +10,8 @@
 int main(int argc, char** argv) {
     if (argc == 1) {
         int home_ino = dir_lookup(0, "home/");
-        workdir_ino  = dir_lookup(home_ino, "yunhao/");
-        strcpy(workdir, "/home/yunhao");
+        workdir_ino  = dir_lookup(home_ino, "langyun/");
+        strcpy(workdir, "/home/langyun");
         return 0;
     }
 

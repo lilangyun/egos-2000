@@ -14,7 +14,10 @@ extern struct process proc_set[MAX_NPROCESS + 1];
 
 static void proc_set_status(int pid, enum proc_status status) {
     for (uint i = 0; i < MAX_NPROCESS; i++)
-        if (proc_set[i].pid == pid) proc_set[i].status = status;
+        /* A zombie is dead: do not schedule it again, not even when a pending
+         * message of it is consumed by its receiver (see proc_try_recv). */
+        if (proc_set[i].pid == pid && proc_set[i].status != PROC_ZOMBIE)
+            proc_set[i].status = status;
 }
 
 static void proc_print_lifecycle(int idx) {
@@ -38,6 +41,7 @@ void proc_set_ready(int pid) { proc_set_status(pid, PROC_READY); }
 void proc_set_running(int pid) { proc_set_status(pid, PROC_RUNNING); }
 void proc_set_runnable(int pid) { proc_set_status(pid, PROC_RUNNABLE); }
 void proc_set_pending(int pid) { proc_set_status(pid, PROC_PENDING_SYSCALL); }
+void proc_set_zombie(int pid) { proc_set_status(pid, PROC_ZOMBIE); }
 
 int proc_alloc() {
     static uint curr_pid = 0;
@@ -76,9 +80,13 @@ void proc_free(int pid) {
     /* Print the lifecycle statistics of the terminated process or processes. */
     if (pid != GPID_ALL) {
         uint idx = pid_to_idx(pid);
+        /* The process may have been freed already: freeing a process twice
+         * must not free its memory or print its statistics twice. */
+        if (idx >= MAX_NPROCESS || proc_set[idx].status == PROC_UNUSED) return;
         proc_print_lifecycle(idx);
         earth->mmu_free(pid);
-        proc_set_status(pid, PROC_UNUSED);
+        /* Set the status directly so that a zombie can be reaped. */
+        proc_set[idx].status = PROC_UNUSED;
     } else {
         /* Free all user processes. */
         for (uint i = 0; i < MAX_NPROCESS; i++)

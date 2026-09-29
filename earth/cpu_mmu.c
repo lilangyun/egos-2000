@@ -204,7 +204,20 @@ void mmu_init() {
     /* Replace the PMP region above with two PMP NAPOT regions:
      * [APPS_ENTRY, APPS_ENTRY + 2MB) with permission R/W/X;
      * [SHELL_WORK_DIR, SHELL_WORK_DIR + 4KB) with permission R/W. */
+    
+    // 2M B = 2^21 B, (2M >> 2) = 2^19;
+    ulonglong ph_addr = (APPS_ENTRY >> 2);
+    ulonglong pmp_addr = ph_addr | 0x3FFFF;
+    asm("csrw pmpaddr0, %0" : : "r"(pmp_addr));
 
+    // 4K B = 2^12 B, (4K >> 2) = 2^10
+    ph_addr = (SHELL_WORK_DIR >> 2);
+    pmp_addr = ph_addr | 0x1FF;
+    asm("csrw pmpaddr1, %0" : : "r"(pmp_addr));
+
+    // Set up the pmpcfg
+    ulonglong pmp_cfg = ((0x1B << 8) | 0x1F);
+    asm("csrw pmpcfg0, %0" : : "r"(pmp_cfg));
     /* Student's code ends here. */
 
     CRITICAL("Choose a memory translation mechanism:");

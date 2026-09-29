@@ -44,6 +44,7 @@ void kernel_entry() {
 #define EXCP_ID_ECALL_U 8
 #define EXCP_ID_ECALL_M 11
 static void proc_yield();
+static void proc_kill(uint id);
 static void proc_try_syscall(struct process* proc);
 
 static void excp_entry(uint id) {
@@ -63,9 +64,34 @@ static void excp_entry(uint id) {
     /* Student's code goes here (System Call & Protection | Virtual Memory). */
 
     /* Kill the current process if curr_pid is a user application. */
-
+    if (curr_proc_idx < MAX_NPROCESS && curr_pid >= GPID_USER_START) {
+        proc_kill(id);
+        proc_yield();
+        return;
+    }
     /* Student's code ends here. */
     FATAL("excp_entry: kernel got exception %d", id);
+}
+
+/* Terminate the current user process. The process is not freed here but marked
+ * as a zombie, and a PROC_EXIT message is sent to GPID_PROCESS on its behalf.
+ * GPID_PROCESS reaps the process with proc_free() and, if a shell process is
+ * waiting for it, sends a reply to the shell, which otherwise would wait
+ * forever for a reply that never comes. */
+static void proc_kill(uint id) {
+    struct process* proc = &proc_set[curr_proc_idx];
+
+    INFO("process %d terminated with exception %u", proc->pid, id);
+
+    /* A zombie is never scheduled again; proc_yield() keeps retrying the
+     * message until GPID_PROCESS is ready to receive it. */
+    proc_set_zombie(proc->pid);
+    memset(&proc->syscall, 0, sizeof(struct syscall));
+    proc->syscall.type                       = SYS_SEND;
+    proc->syscall.receiver                   = GPID_PROCESS;
+    proc->syscall.status                     = PENDING;
+    ((struct proc_request*)proc->syscall.content)->type = PROC_EXIT;
+    proc_try_syscall(proc);
 }
 
 static void intr_entry(uint id) {
@@ -73,7 +99,6 @@ static void intr_entry(uint id) {
     
     /* Update the process lifecycle statistics. */
     if (id == INTR_ID_TIMER) proc_set[curr_proc_idx].num_timer_interrupt++;
-
     /* Student's code ends here. */
 
     if (id == INTR_ID_TIMER) return proc_yield();
@@ -110,13 +135,18 @@ static void proc_yield() {
     uint lowest_level = 5;
     for (uint i = 1; i <= MAX_NPROCESS; i++) {
         struct process* p = &proc_set[(curr_proc_idx + i) % MAX_NPROCESS];
-        if(p->status == PROC_PENDING_SYSCALL) proc_try_syscall(p);
+        /* Retry the pending system calls of the blocked processes, including
+         * the PROC_EXIT message of a process killed by the kernel (a zombie),
+         * until GPID_PROCESS receives them. */
+        if(p->status == PROC_PENDING_SYSCALL || p->status == PROC_ZOMBIE)
+            proc_try_syscall(p);
 
         // Skip the sleeping process
         clock_now = mtime_get();
         if((p->time_sleep != 0) && (clock_now - p->clock_sleep) < p->time_sleep) {
             continue;
         }
+        if(p->time_sleep != 0) p->time_sleep = 0;
 
         if((p->status == PROC_READY || p->status == PROC_RUNNABLE) &&
             p->mlfq_level < lowest_level) {
@@ -136,6 +166,10 @@ static void proc_yield() {
             proc_set[next_idx].time_response = clock_now - proc_set[next_idx].clock_creation;
         }
         proc_set[next_idx].clock_switch_in = clock_now;
+
+        if(proc_set[next_idx].pid < GPID_USER_START) asm("csrs mstatus, %0" ::"r"(0x1800));
+        else asm("csrc mstatus, %0" ::"r"(0x1800));
+
     } else {
         /* [Multicore & Locks]
          * Release the kernel lock.

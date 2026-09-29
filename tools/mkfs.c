@@ -36,7 +36,7 @@ char* egos_binaries[] = {"./egos.bin",
 char bin_dir[256] = "./   6 ../   0 ";
 char* contents[]  = {
     "./   0 ../   0 home/   1 bin/   6 ",
-    "./   1 ../   0 yunhao/   2 rvr/   3 yacqub/   4 ",
+    "./   1 ../   0 langyun/   2 rvr/   3 yacqub/   4 ",
     "./   2 ../   1 README   5 ",
     "./   3 ../   1 ",
     "./   4 ../   1 ",
