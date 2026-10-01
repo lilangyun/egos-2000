@@ -87,9 +87,9 @@ static void proc_kill(uint id) {
      * message until GPID_PROCESS is ready to receive it. */
     proc_set_zombie(proc->pid);
     memset(&proc->syscall, 0, sizeof(struct syscall));
-    proc->syscall.type                       = SYS_SEND;
-    proc->syscall.receiver                   = GPID_PROCESS;
-    proc->syscall.status                     = PENDING;
+    proc->syscall.type     = SYS_SEND;
+    proc->syscall.receiver = GPID_PROCESS;
+    proc->syscall.status   = PENDING;
     ((struct proc_request*)proc->syscall.content)->type = PROC_EXIT;
     proc_try_syscall(proc);
 }
@@ -167,8 +167,10 @@ static void proc_yield() {
         }
         proc_set[next_idx].clock_switch_in = clock_now;
 
-        if(proc_set[next_idx].pid < GPID_USER_START) asm("csrs mstatus, %0" ::"r"(0x1800));
-        else asm("csrc mstatus, %0" ::"r"(0x1800));
+        if(earth->translation == SOFT_TLB && 
+           proc_set[next_idx].pid < GPID_USER_START) 
+                asm("csrs mstatus, %0" ::"r"(0x1800));
+        else    asm("csrc mstatus, %0" ::"r"(0x1800));
 
     } else {
         /* [Multicore & Locks]
