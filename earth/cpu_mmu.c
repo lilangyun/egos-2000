@@ -11,7 +11,7 @@
 #include <string.h>
 
 #define PAGE_SIZE          4096
-#define PAGE_NO_TO_ADDR(x) (char*)(x * PAGE_SIZE)
+#define PAGE_NO_TO_ADDR(x) (char*)(x * PAGE_SIZE)  // vpn -> vaddr
 #define PAGE_ID_TO_ADDR(x) ((char*)APPS_PAGES_BASE + x * PAGE_SIZE)
 #define APPS_PAGES_CNT     (RAM_END - APPS_PAGES_BASE) / PAGE_SIZE
 
@@ -94,6 +94,28 @@ void setup_identity_region(int pid, uint addr, uint npages, uint flag) {
         leaf[vpn0 + i] = ((addr + i * PAGE_SIZE) >> 2) | flag;
 }
 
+void update_page_table(int pid, uint vpage_no, uint ppaged_id, uint flag){
+    uint vpn1 = vpage_no >> 10;
+    
+    root = pid_to_pagetable_base[pid];
+    if (root[vpn1] & 0x1) {
+        /* Leaf has been allocated. */
+        leaf = (void*)((root[vpn1] << 2) & 0xFFFFF000);
+    } else {
+        /* Allocate the leaf page table. */
+        uint leaf_ppage_id                 = earth->mmu_alloc();
+        leaf                          = (void*)PAGE_ID_TO_ADDR(leaf_ppage_id);
+        page_info_table[leaf_ppage_id].pid = pid;
+        memset(leaf, 0, PAGE_SIZE);
+        root[vpn1] = ((uint)leaf >> 2) | 0x1;
+    }
+
+    /* Set up the entries in the leaf page table. */
+    uint vpn0 = vpage_no & 0x3FF;
+    uint ppage_addr = (uint)(PAGE_ID_TO_ADDR(ppaged_id));
+    leaf[vpn0] = (ppage_addr >> 2) | flag;
+}
+
 void pagetable_identity_map(int pid) {
     /* Allocate the root page table. */
     uint ppage_id                 = earth->mmu_alloc();
@@ -147,7 +169,30 @@ void page_table_map(int pid, uint vpage_no, uint ppage_id) {
      *
      * (2) After page tables for process pid have been initialized, update the
      *     page tables and map *vpage_no* to *ppage_id* according to Sv32. */
-    soft_tlb_map(pid, vpage_no, ppage_id);
+
+    /* Set up an identity map using page tables. */
+    if(pid_to_pagetable_base[pid] == NULL){
+        /* Allocate the root page table. */
+        uint root_ppage_id = earth->mmu_alloc();
+        root = (void*)PAGE_ID_TO_ADDR(root_ppage_id);
+        page_info_table[root_ppage_id].pid = pid;
+        pid_to_pagetable_base[pid] = root;
+        memset(root, 0, PAGE_SIZE);
+        if(pid < 5){
+            setup_identity_region(pid, RAM_START, 512, USER_RWX);
+            setup_identity_region(pid, APPS_ENTRY, 512, USER_RWX);
+            setup_identity_region(pid, APPS_PAGES_BASE, 512, USER_RWX);
+            setup_identity_region(pid, UART_BASE, 1, USER_RWX);
+            setup_identity_region(pid, SDHCI_BASE, 1, USER_RWX);
+            setup_identity_region(pid, CLINT_BASE, 16, USER_RWX);
+        }
+        else{
+            setup_identity_region(pid, SHELL_WORK_DIR, 1, USER_RWX);
+        }
+    }
+    update_page_table(pid, vpage_no, ppage_id, USER_RWX);
+    page_info_table[ppage_id].pid      = pid;
+    page_info_table[ppage_id].vpage_no = vpage_no;
 
     /* Student's code ends here. */
 }
@@ -158,7 +203,9 @@ void page_table_switch(int pid) {
     /* Remove the soft_tlb_switch below and, instead, update the page table
      * base register (satp) using the value of pid_to_pagetable_base[pid].
      * An example of updating the satp CSR is given in mmu_init(). */
-    soft_tlb_switch(pid);
+
+    root = pid_to_pagetable_base[pid];
+    asm("csrw satp, %0" ::"r"(((uint)root >> 12) | (1 << 31)));
 
     /* Student's code ends here. */
 }
@@ -168,7 +215,18 @@ uint page_table_translate(int pid, uint vaddr) {
 
     /* Remove the following line of code. Walk through the page tables
      * for process pid and return the physical address mapped from vaddr. */
-    return soft_tlb_translate(pid, vaddr);
+    uint vpn1 = vaddr >> 22;
+    uint vpn0 = (vaddr >> 12) & 0x3FF;
+    uint offset = vaddr & 0xFFF;
+
+    root = pid_to_pagetable_base[pid];
+    if((root[vpn1] & 0x1) == 0) FATAL("vaddr: %u is invalid in root", vaddr);
+
+    leaf = (void*)((root[vpn1] << 2) & 0xFFFFF000);
+    if((leaf[vpn0] & 0x1) == 0) FATAL("vaddr: %u is invalid in leaf", vaddr);
+
+    uint paddr = ((leaf[vpn0] << 2) & 0xFFFFF000) | offset;
+    return paddr;
 
     /* Student's code ends here. */
 }
@@ -199,27 +257,6 @@ void mmu_init() {
     asm("csrw pmpaddr0, %0" : : "r"(0x40000000));
     asm("csrw pmpcfg0, %0" : : "r"(0xF));
 
-    /* Student's code goes here (System Call & Protection). */
-
-    /* Replace the PMP region above with two PMP NAPOT regions:
-     * [APPS_ENTRY, APPS_ENTRY + 2MB) with permission R/W/X;
-     * [SHELL_WORK_DIR, SHELL_WORK_DIR + 4KB) with permission R/W. */
-    
-    // 2M B = 2^21 B, (2M >> 2) = 2^19;
-    ulonglong ph_addr = (APPS_ENTRY >> 2);
-    ulonglong pmp_addr = ph_addr | 0x3FFFF;
-    asm("csrw pmpaddr0, %0" : : "r"(pmp_addr));
-
-    // 4K B = 2^12 B, (4K >> 2) = 2^10
-    ph_addr = (SHELL_WORK_DIR >> 2);
-    pmp_addr = ph_addr | 0x1FF;
-    asm("csrw pmpaddr1, %0" : : "r"(pmp_addr));
-
-    // Set up the pmpcfg
-    ulonglong pmp_cfg = ((0x1B << 8) | 0x1F);
-    asm("csrw pmpcfg0, %0" : : "r"(pmp_cfg));
-    /* Student's code ends here. */
-
     CRITICAL("Choose a memory translation mechanism:");
     printf("Enter 0: page tables.\n\rEnter 1: software TLB.\n\r");
 
@@ -238,6 +275,24 @@ void mmu_init() {
         earth->mmu_switch    = page_table_switch;
         earth->mmu_translate = page_table_translate;
     } else {
+        /* Student's code goes here (System Call & Protection). */
+
+        /* Replace the PMP region above with two PMP NAPOT regions:
+        * [APPS_ENTRY, APPS_ENTRY + 2MB) with permission R/W/X;
+        * [SHELL_WORK_DIR, SHELL_WORK_DIR + 4KB) with permission R/W. */
+        
+        uint ph_addr = (APPS_ENTRY >> 2);
+        uint pmp_addr = ph_addr | 0x3FFFF;
+        asm("csrw pmpaddr0, %0" : : "r"(pmp_addr));
+
+        ph_addr = (SHELL_WORK_DIR >> 2);
+        pmp_addr = ph_addr | 0x1FF;
+        asm("csrw pmpaddr1, %0" : : "r"(pmp_addr));
+
+        uint pmp_cfg = ((0x1B << 8) | 0x1F);
+        asm("csrw pmpcfg0, %0" : : "r"(pmp_cfg));
+
+        /* Student's code ends here. */
         earth->mmu_map       = soft_tlb_map;
         earth->mmu_switch    = soft_tlb_switch;
         earth->mmu_translate = soft_tlb_translate;
