@@ -31,9 +31,13 @@ uint mmu_alloc() {
 }
 
 void mmu_free(int pid) {
+    int cnt = 0;
     for (uint i = 0; i < APPS_PAGES_CNT; i++)
-        if (page_info_table[i].use && page_info_table[i].pid == pid)
+        if (page_info_table[i].use && page_info_table[i].pid == pid) {
             memset(&page_info_table[i], 0, sizeof(struct page_info));
+            cnt++;
+        }
+    INFO("mmu_free() released %d pages (2 are page tables) for process 6", cnt);
 }
 
 void soft_tlb_map(int pid, uint vpage_no, uint ppage_id) {
