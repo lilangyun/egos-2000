@@ -72,6 +72,7 @@ extern struct grass* grass;
 /* Below are some common macros or declarations for I/O or multicore. */
 #define ACCESS(x)          (*(__typeof__(*x) volatile*)(x))
 #define REGW(base, offset) (ACCESS((uint*)(base + offset)))
+#define REGH(base, offset) (ACCESS((ushort*)(base + offset)))
 #define REGB(base, offset) (ACCESS((uchar*)(base + offset)))
 
 #define NCORES     4

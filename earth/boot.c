@@ -52,6 +52,55 @@ void boot() {
          * Your driver should setup the PCI ECAM for VGA, and then set the VGA
          * screen resolution to 800*600 pixels, each using 4 bytes for its RGB
          * information. Lastly, initialize all the pixels with white color. */
+        #define VGA_PCI_ECAM  0x30010000UL
+        #define VGA_MMIO_BASE 0x42000000UL
+        #define PCI_ECAM_ALLOW_MMIO_AND_DMA ((1 << 1) | (1 << 2))
+
+        /* Set the PCI ECAM base address register to SDHCI_BASE. */
+        REGW(VGA_PCI_ECAM, 0x4)  = PCI_ECAM_ALLOW_MMIO_AND_DMA;
+        REGW(VGA_PCI_ECAM, 0x10) = VIDEO_FRAME_BASE;
+        REGW(VGA_PCI_ECAM, 0x18) = VGA_MMIO_BASE;
+        INFO("VGA BAR0 = 0x%x, BAR2 = 0x%x",
+            REGW(VGA_PCI_ECAM, 0x10), REGW(VGA_PCI_ECAM, 0x18));
+
+        /* Setup the screen resolution */
+        #define VBE_DISPI_INDEX_XRES   (1) 
+        #define VBE_DISPI_INDEX_YRES   (2)
+        #define VBE_DISPI_INDEX_BPP    (3)
+        #define VBE_DISPI_INDEX_ENABLE (4)
+        REGH(VGA_MMIO_BASE, 0x500 + (VBE_DISPI_INDEX_ENABLE<<1)) = 0x0;
+        REGH(VGA_MMIO_BASE, 0x500 + (VBE_DISPI_INDEX_XRES<<1))   = 800;
+        REGH(VGA_MMIO_BASE, 0x500 + (VBE_DISPI_INDEX_YRES<<1))   = 600;
+        REGH(VGA_MMIO_BASE, 0x500 + (VBE_DISPI_INDEX_BPP<<1))    = 32;
+        REGH(VGA_MMIO_BASE, 0x500 + (VBE_DISPI_INDEX_ENABLE<<1)) = 0x1;
+
+        /* Turn the VGA video on through the legacy Attribute Controller.
+         * QEMU's std VGA gates its whole graphics path on the AR index
+         * register's PAS bit -- vga_update_display() does:
+         *     if (!(s->ar_index & 0x20)) graphic_mode = GMODE_BLANK;
+         * and GMODE_BLANK -> vga_draw_blank() never resizes the surface, so
+         * the screen stays stuck on the 640x480 "Guest has not initialized
+         * the display (yet)." placeholder. vbe_update_vgaregs() sets gr[6]
+         * but never touches ar_index; on an x86 PC the VGA BIOS does it.
+         * We have no VGA BIOS (-bios tools/egos.bin is bare firmware), so we
+         * must. BAR2 maps VGA I/O ports at +0x400 (port 0x3C0), so read
+         * Input Status 1 (0x3DA, at +0x41A) to reset the AR flip-flop, then
+         * write 0x20 as the AR index to switch the video on. */
+        (void)REGB(VGA_MMIO_BASE, 0x41A);
+        REGB(VGA_MMIO_BASE, 0x400) = 0x20;
+
+        INFO("DISPI_X = 0x%x, DISPI_Y = 0x%x, DISPI_BPP = 0x%x, DISPI_ENA = 0x%x",
+            REGH(VGA_MMIO_BASE, 0x500 + (VBE_DISPI_INDEX_XRES<<1)),
+            REGH(VGA_MMIO_BASE, 0x500 + (VBE_DISPI_INDEX_YRES<<1)),
+            REGH(VGA_MMIO_BASE, 0x500 + (VBE_DISPI_INDEX_BPP<<1)),
+            REGH(VGA_MMIO_BASE, 0x500 + (VBE_DISPI_INDEX_ENABLE<<1))
+        );
+
+        /* Initialize all the pixels with white color */
+        uint *fb = (uint*)VIDEO_FRAME_BASE;
+        for (int i = 0; i < 800 * 600; i++) {
+            fb[i] = 0x00FFFFFF;
+        }
 
         /* Student's code ends here. */
 

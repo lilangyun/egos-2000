@@ -59,7 +59,7 @@ install: egos
 	cd tools; rm -f disk.img fpgaROM.bin qemuROM.bin; ./mkfs
 
 QEMU_MACHINE = -M virt -smp 4 -m 8M -bios tools/egos.bin
-QEMU_GRAPHIC = -nographic# -device VGA,addr=0x2 -serial mon:stdio
+QEMU_GRAPHIC = -device VGA,addr=0x2 -serial mon:stdio # -nographic
 QEMU_FLASH_1 = -drive if=pflash,format=raw,unit=1,file=tools/qemuROM.bin
 QEMU_SD_CARD = -device sdhci-pci,addr=0x1 -device sd-card,drive=MMC -drive if=none,file=tools/disk.img,format=raw,id=MMC
 
