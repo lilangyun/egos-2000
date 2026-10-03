@@ -192,6 +192,9 @@ void page_table_map(int pid, uint vpage_no, uint ppage_id) {
         }
         else{
             setup_identity_region(pid, SHELL_WORK_DIR, 1, USER_RWX);
+            setup_identity_region(pid, EARTH_STRUCT, 2, USER_RWX);
+            setup_identity_region(pid, FLASH_ROM_BASE, 1024, USER_RWX);
+            setup_identity_region(pid, VIDEO_FRAME_BASE, 512, USER_RWX);
         }
     }
     update_page_table(pid, vpage_no, ppage_id, USER_RWX);
