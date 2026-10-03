@@ -24,6 +24,14 @@
 #define SDHCI_INT_STAT_ENABLE  0x34
 #define SDHCI_INT_SIG_ENABLE   0x38
 
+#define DATA_PRESENT_FLAG         (1 << 5)
+#define READ_WITH_DMA_ENABLE_MODE ((1 << 4) | (1 << 0))
+#define DATA_TRANSFER_MODE_SBLOCK_WRITE (1 << 0)
+#define DATA_TRANSFER_MODE_MBLOCK_READ  ((1<<5) | (1<<4) | (1<<2) | (1<<1) | (1<<0))
+#define DATA_TRANSFER_MODE_MBLOCK_WRITE ((1<<5) | (1<<1) | (1<<2) | (1<<0))
+
+#define BLOCK_NUM (PAGE_SIZE / BLOCK_SIZE)
+
 static char sdhci_exec_cmd(uint idx, uint arg, uchar flag, uint mode) {
     /* Wait until the SD controller is ready for a new command. */
     while (REGW(SDHCI_BASE, SDHCI_PRESENT_STATE) & 0x3);
@@ -45,13 +53,52 @@ static void sdhci_read(uint offset, char* dst) {
     REGW(SDHCI_BASE, SDHCI_DMA_ADDRESS)      = (uint)aligned_buf;
     REGW(SDHCI_BASE, SDHCI_BLK_CNT_AND_SIZE) = (1 << 16) | BLOCK_SIZE;
 
-#define DATA_PRESENT_FLAG         (1 << 5)
-#define READ_WITH_DMA_ENABLE_MODE ((1 << 4) | (1 << 0))
     /* Send and wait for a read request with command #17. */
     offset *= BLOCK_SIZE;
     sdhci_exec_cmd(17, offset, DATA_PRESENT_FLAG, READ_WITH_DMA_ENABLE_MODE);
 
     memcpy(dst, aligned_buf, BLOCK_SIZE);
+}
+
+static void sdhci_read_mblock(uint offset, char* dst, uint block_num) {
+    /* Prepare DMA (SDHCI SDMA mode). */
+    static __attribute__((aligned(PAGE_SIZE))) char aligned_buf[PAGE_SIZE];
+    REGW(SDHCI_BASE, SDHCI_DMA_ADDRESS)      = (uint)aligned_buf;
+    REGW(SDHCI_BASE, SDHCI_BLK_CNT_AND_SIZE) = (block_num << 16) | BLOCK_SIZE;
+
+    /* Send and wait for a read request with command #18. */
+    offset *= BLOCK_SIZE;
+    sdhci_exec_cmd(18, offset, DATA_PRESENT_FLAG, DATA_TRANSFER_MODE_MBLOCK_READ);
+
+    memcpy(dst, aligned_buf, (block_num * BLOCK_SIZE));
+}
+
+static void sdhci_write(uint offset, char* src) {
+    /* Align address */
+    static __attribute__((aligned(BLOCK_SIZE))) char aligned_buf[BLOCK_SIZE];
+    memcpy(aligned_buf, src, BLOCK_SIZE);
+
+    /* Prepare DMA (SDHCI SDMA mode). */
+    REGW(SDHCI_BASE, SDHCI_DMA_ADDRESS)      = (uint)aligned_buf;
+    REGW(SDHCI_BASE, SDHCI_BLK_CNT_AND_SIZE) = (1 << 16) | BLOCK_SIZE;
+
+    /* Send and wait for a read request with command #24. */
+    offset *= BLOCK_SIZE;
+    sdhci_exec_cmd(24, offset, DATA_PRESENT_FLAG, DATA_TRANSFER_MODE_SBLOCK_WRITE);
+}
+
+static void sdhci_write_mblock(uint offset, char* src, uint block_num) {
+    /* Align address */
+    static __attribute__((aligned(PAGE_SIZE))) char aligned_buf[PAGE_SIZE];
+    memcpy(aligned_buf, src, block_num*BLOCK_SIZE);
+
+    /* Prepare DMA (SDHCI SDMA mode). */
+    REGW(SDHCI_BASE, SDHCI_DMA_ADDRESS)      = (uint)aligned_buf;
+    REGW(SDHCI_BASE, SDHCI_BLK_CNT_AND_SIZE) = (block_num << 16) | BLOCK_SIZE;
+
+    /* Send and wait for a read request with command #25. */
+    offset *= BLOCK_SIZE;
+    sdhci_exec_cmd(25, offset, DATA_PRESENT_FLAG, DATA_TRANSFER_MODE_MBLOCK_WRITE);
 }
 
 static int sdhci_init() {
@@ -128,6 +175,23 @@ static void sdspi_read(uint offset, char* dst) {
     spi_exchange(0xFF);
 }
 
+static void sdspi_read_mblock(uint offset, char* dst, uint block_num) {
+    /* Wait until the SD card is ready for a new command. */
+    while (spi_exchange(0xFF) != 0xFF);
+
+    /* Send a read request with command #18. */
+    char* arg = (void*)&offset;
+    char reply, cmd18[] = {18 | (1 << 6), arg[3], arg[2], arg[1], arg[0], 0xFF};
+    if (reply = sdspi_exec_cmd(cmd18))
+        FATAL("cmd18 returns status 0x%.2x", reply);
+
+    /* Wait for the data packet and ignore the 2-byte checksum. */
+    while (spi_exchange(0xFF) != 0xFE);
+    for (uint i = 0; i < (block_num * BLOCK_SIZE); i++) dst[i] = spi_exchange(0xFF);
+    spi_exchange(0xFF);
+    spi_exchange(0xFF);
+}
+
 static int sdspi_init() {
     /* Configure the SPI controller. */
 #define CPU_CLOCK_RATE 100000000 /* 100MHz */
@@ -181,11 +245,24 @@ void disk_read(uint block_no, uint nblocks, char* dst) {
      * page boundaries, you can read at most PAGE_SIZE/BLOCK_SIZE==8 blocks
      * using SDMA. Start with SDMA and assume nblocks<=8. After command #18
      * using SDMA works, you can try the more complicated ADMA mechanism. */
-    for (uint i = 0; i < nblocks; i++)
-        (earth->platform == HARDWARE)
-            ? sdspi_read(block_no + i, dst + BLOCK_SIZE * i)
-            : sdhci_read(block_no + i, dst + BLOCK_SIZE * i);
 
+    /* Single-Block */
+    if(nblocks == 1){
+        if(earth->platform == HARDWARE) 
+            sdspi_read(block_no, dst);            
+        else 
+            sdhci_read(block_no, dst);
+        return;
+    }
+
+    /* Multiple-Block */
+    for (uint i = 0; i < nblocks; i+=BLOCK_NUM) {
+        uint block_num = ((nblocks - i) < BLOCK_NUM)? (nblocks - i): BLOCK_NUM;
+        if(earth->platform == HARDWARE) 
+            sdspi_read_mblock(block_no + i, dst + i*BLOCK_SIZE, block_num);
+        else
+            sdhci_read_mblock(block_no + i, dst + i*BLOCK_SIZE, block_num);
+    }
     /* Student's code ends here. */
 }
 
@@ -196,7 +273,20 @@ void disk_write(uint block_no, uint nblocks, char* src) {
     /* Implement the SD card multi-block write driver with command #25. Add
      * a testing function disk_test() as explained below, which should call
      * disk_write() and test whether multi-block write works correctly. */
+    if(earth->platform == HARDWARE) FATAL("SDSPI has not yet implemented");
 
+    /* Single-Block */
+    if(nblocks == 1){
+        sdhci_write(block_no, src);
+        return;
+    }
+
+    /* Multiple-Block */
+    #define BLOCK_NUM (PAGE_SIZE / BLOCK_SIZE)
+    for (uint i = 0; i < nblocks; i+=BLOCK_NUM) {
+        uint block_num = ((nblocks - i) < BLOCK_NUM)? (nblocks - i): BLOCK_NUM;
+        sdhci_write_mblock(block_no + i, src + i*BLOCK_SIZE, block_num);
+    }
     /* Student's code ends here. */
 }
 
@@ -205,7 +295,31 @@ void disk_write(uint block_no, uint nblocks, char* src) {
 /* Add a disk_test() function and call it at the end of disk_init(), so the
  * testing is conducted during boot time. You need to call disk_write() and
  * change the disk content, and revert all changes after finishing the test. */
+static void disk_test() {
+    /* Read raw content */
+    char buf[PAGE_SIZE], write_buf[PAGE_SIZE], read_buf[PAGE_SIZE];
+    disk_read(SYS_PROC_EXEC_START, BLOCK_NUM, buf);
+    printf("The initial  content's first 8 bytes: %x %x %x %x %x %x %x %x.\n",
+       buf[0],buf[1],buf[2],buf[3],buf[4],buf[5],buf[6],buf[7]);
 
+    /* Modify disk content */
+    char magic_string[] = "Lilangyun is the best in the world!";
+    memcpy(write_buf, magic_string, sizeof(magic_string));
+    disk_write(SYS_PROC_EXEC_START, BLOCK_NUM, write_buf);
+
+    /* Read from disk to check the content */
+    disk_read(SYS_PROC_EXEC_START, BLOCK_NUM, read_buf);
+    printf("The modified content is: %s\n", read_buf);
+    printf("The modified content's first 8 bytes: %x %x %x %x %x %x %x %x.\n",
+       read_buf[0],read_buf[1],read_buf[2],read_buf[3],read_buf[4],read_buf[5],read_buf[6],read_buf[7]);
+
+    /* Compare each other */
+    if(strcmp(write_buf, read_buf) != 0) FATAL("Disk test failed!");
+
+    /* Revert content */
+    disk_write(SYS_PROC_EXEC_START, BLOCK_NUM, buf);
+    SUCCESS("disk_test execute normally!");
+}
 /* Student's code ends here. */
 
 void disk_init() {
@@ -220,4 +334,6 @@ void disk_init() {
         type = (sdspi_init() == 0) ? SD_CARD : FLASH_ROM;
         if (type == FLASH_ROM) CRITICAL("Using FLASH_ROM instead of SD_CARD");
     }
+
+    // disk_test();
 }
