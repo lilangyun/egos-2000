@@ -1,6 +1,7 @@
 #pragma once
 
 #define BLOCK_SIZE 512
+#define PAGE_SIZE 4096
 
 typedef struct block {
     char bytes[BLOCK_SIZE];
